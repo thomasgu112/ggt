@@ -25,21 +25,26 @@
 
 #ifdef GEGL_PROPERTIES
 
-property_double (cx, _("Lens center X"), 0.05)
-description (_("Coordinates of lens center"))
+property_double (xo, _("X Offset"), 0.0)
 value_range (-1.0, 1.0)
 
-property_double (cy, _("Lens center Y"), 0.05)
-description (_("Coordinates of lens center"))
+property_double (yo, _("Y Offset"), 0.0)
 value_range (-1.0, 1.0)
 
-property_double (rscale, _("Scale"), 0.5)
-description (_("Scale of the image"))
-value_range (0.0, 100.0)
+property_double (sz, _("Sphere Size"), 1.0)
+value_range (0.0, 1.0)
 
-property_double (angle, _("Angle"), 0.05)
-description (_("Spin"))
-value_range (-4.0, 4.0)
+property_double (ts, _("Texture Scale"), 1.0)
+value_range (0.0, 10.0)
+
+property_double (xAngle, _("x Angle"), 0.0)
+value_range (-3.14, 3.14)
+
+property_double (yAngle, _("y Angle"), 0.0)
+value_range (-3.14, 3.14)
+
+property_double (zAngle, _("z Angle"), 0.0)
+value_range (-3.14, 3.14)
 
 #else
 
@@ -49,6 +54,15 @@ value_range (-4.0, 4.0)
 
 #include "gegl-op.h"
 #include <stdio.h>
+
+void rotate
+(gdouble *a, gdouble *b, gdouble c, gdouble s)
+{
+	gdouble t = *a;
+	*a = c*(*a) + s*(*b);
+	*b = c*(*b) - s*t;
+	return;
+}
 
 static GeglRectangle
 get_bounding_box (GeglOperation *operation)
@@ -86,50 +100,75 @@ process (GeglOperation       *operation,
 		gint                 level)
 {
 	GeglProperties *o = GEGL_PROPERTIES (operation);
-	GeglRectangle *bound =
-	gegl_operation_source_get_bounding_box(operation, "input");
+	GeglRectangle bound =
+	*gegl_operation_source_get_bounding_box(operation, "input");
+	GeglSampler *sampler;
 
 	gint X, Y;
 	gdouble	t, x, y, z;
 	guchar	*src_buf, *dst_buf;
 
-	gint across =
-	bound->width > bound->height ? bound->width : bound->height;
-	gfloat rExtent = 1.0/across;
-	gfloat cosi = cos(o->angle);
-	gfloat sine = sin(o->angle);
+	gdouble rWidth = 1.0/bound.width;
+	gdouble rHeight = 1.0/bound.height;
+	gdouble rSize = 1.0/o->sz;
 
-	src_buf	= g_new0 (guchar, result->width * result->height * 4);
+	gdouble xCos = cos(o->xAngle);
+	gdouble xSin = sin(o->xAngle);
+	gdouble yCos = cos(o->yAngle);
+	gdouble ySin = sin(o->yAngle);
+	gdouble zCos = cos(o->zAngle);
+	gdouble zSin = sin(o->zAngle);
+
+	sampler = gegl_buffer_sampler_new(input, babl_format("RGBA u8"), GEGL_SAMPLER_NEAREST);
+
 	dst_buf	= g_new0 (guchar, result->width * result->height * 4);
+	//src_buf	= g_new0 (guchar, bound.width * bound.height * 4);
 
-	gegl_buffer_get (input, result, 1.0, babl_format ("RGBA u8"),
-			src_buf, GEGL_AUTO_ROWSTRIDE, GEGL_ABYSS_NONE);
+	//bound.x = bound.y = 0;
+	//gegl_buffer_get (input, &bound, 1.0, babl_format ("RGBA u8"),
+	//		src_buf, GEGL_AUTO_ROWSTRIDE, GEGL_ABYSS_NONE);
 
 	for (Y = result->y; Y < result->y + result->height; ++Y)
 	for (X = result->x; X < result->x + result->width; ++X)
 	{
-		x = ((2*X - bound->width)*rExtent - o->cx)*o->rscale;
-		y = ((2*Y - bound->height)*rExtent - o->cy)*o->rscale;
+		x = ((2*X - bound.width)*rWidth - o->xo)*rSize;
+		y = ((2*Y - bound.height)*rHeight - o->yo)*rSize;
 		if(x*x + y*y > 1.0) continue;
 
-		//z = sqrt(1 - x*x - y*y);
+		z = -sqrt(1.0 - x*x - y*y);
+		rotate(&y, &z, xCos, xSin);
+		rotate(&z, &x, yCos, ySin);
+		rotate(&x, &y, zCos, zSin);
 		//t = x;
 		//x = cosi*x + sine*z;
 		//z = cosi*z - sine*t;
+		//if(z > 0.0) continue;
 
-		//z = z*cosi - x*sine;
-		//z = 1/(1 - z);
-		//x = x*z; x = 0.5*(x + 1.0);
-		//y = y*z; y = 0.5*(x + 1.0);
+		//z = 1.0/(1.0 - z);
+		//x = x*z;
+		//y = y*z;
+		t = sqrt(x*x + y*y);
+		x *= 0.64*acos(-z)/t;
+		y *= 0.64*acos(-z)/t;
+
+		x = 0.5*(o->ts*x + 1.0);
+		y = 0.5*(o->ts*y + 1.0);
+
+		if(x < 0.0 || y < 0.0 || x > 1.0 || y > 1.0) continue;
 		
+		guchar color[4];
 
-		gint offset = (Y - result->y) * result->width * 4 + (X - result->x) * 4;
-		for (int j=0; j<4; j++)
-			dst_buf[offset++] = 255;
+		gegl_sampler_get
+		(sampler, x*bound.width, y*bound.height, NULL, color, GEGL_ABYSS_NONE);
+
+		//gint inOffset = (y*bound.height + x)*4*bound.width;
+		//if(inOffset >= 4*bound.height*bound.width || inOffset < 0) continue;
+		gint outOffset = (Y - result->y) * result->width * 4 + (X - result->x) * 4;
+		for (int j=0; j<4; j++) dst_buf[outOffset + j] = color[j];
 	}
 
-	gegl_buffer_set (output, result, 0, babl_format ("RGBA u8"),
-			dst_buf, GEGL_AUTO_ROWSTRIDE);
+	gegl_buffer_set
+	(output, result, 0, babl_format ("RGBA u8"), dst_buf, GEGL_AUTO_ROWSTRIDE);
 
 	g_free (dst_buf);
 	g_free (src_buf);
@@ -148,9 +187,9 @@ gegl_op_class_init (GeglOpClass *klass)
 
 	filter_class->process = process;
 	operation_class->prepare = prepare;
-	operation_class->get_bounding_box = get_bounding_box;
-	operation_class->get_required_for_output = get_required_for_output;
-	operation_class->threaded                = FALSE;
+	//operation_class->get_bounding_box = get_bounding_box;
+	//operation_class->get_required_for_output = get_required_for_output;
+	operation_class->threaded                = TRUE;
 
 	gegl_operation_class_set_keys (operation_class,
 			"name"       , "gegl:ggt",
