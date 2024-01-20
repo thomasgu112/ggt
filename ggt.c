@@ -104,6 +104,7 @@ process (GeglOperation       *operation,
 	*gegl_operation_source_get_bounding_box(operation, "input");
 	GeglSampler *sampler;
 
+	gint inOffset, outOffset;
 	gint X, Y;
 	gdouble	t, x, y, z;
 	guchar	*src_buf, *dst_buf;
@@ -119,14 +120,23 @@ process (GeglOperation       *operation,
 	gdouble zCos = cos(o->zAngle);
 	gdouble zSin = sin(o->zAngle);
 
-	sampler = gegl_buffer_sampler_new(input, babl_format("RGBA u8"), GEGL_SAMPLER_NEAREST);
+	//sampler = gegl_buffer_sampler_new(input, babl_format("RGBA u8"), GEGL_SAMPLER_NEAREST);
 
 	dst_buf	= g_new0 (guchar, result->width * result->height * 4);
-	//src_buf	= g_new0 (guchar, bound.width * bound.height * 4);
+	src_buf	= g_new0 (guchar, bound.width * bound.height * 4);
 
-	//bound.x = bound.y = 0;
-	//gegl_buffer_get (input, &bound, 1.0, babl_format ("RGBA u8"),
-	//		src_buf, GEGL_AUTO_ROWSTRIDE, GEGL_ABYSS_NONE);
+	gegl_buffer_get
+	(input, NULL, 1.0, babl_format("RGBA u8"), src_buf, GEGL_AUTO_ROWSTRIDE, GEGL_ABYSS_NONE);
+
+	//FILE *imgDump = fopen("/tmp/imgDump", "w");
+	//if(imgDump == NULL)
+	//{
+	//	puts("File open error.");
+	//	return 1;
+	//}
+	//fwrite(src_buf, 1, 4*bound.width*bound.height, imgDump);
+	//g_free(src_buf);
+	//return TRUE;
 
 	for (Y = result->y; Y < result->y + result->height; ++Y)
 	for (X = result->x; X < result->x + result->width; ++X)
@@ -156,15 +166,21 @@ process (GeglOperation       *operation,
 
 		if(x < 0.0 || y < 0.0 || x > 1.0 || y > 1.0) continue;
 		
-		guchar color[4];
+		outOffset = (Y - result->y) * result->width * 4 + (X - result->x) * 4;
 
-		gegl_sampler_get
-		(sampler, x*bound.width, y*bound.height, NULL, color, GEGL_ABYSS_NONE);
+		//guchar color[4];
+		//gegl_sampler_get
+		//(sampler, x*bound.width, y*bound.height, NULL, color, GEGL_ABYSS_NONE);
+		//for (int j=0; j<4; j++) dst_buf[outOffset + j] = color[j];
 
-		//gint inOffset = (y*bound.height + x)*4*bound.width;
-		//if(inOffset >= 4*bound.height*bound.width || inOffset < 0) continue;
-		gint outOffset = (Y - result->y) * result->width * 4 + (X - result->x) * 4;
-		for (int j=0; j<4; j++) dst_buf[outOffset + j] = color[j];
+		inOffset  = y*bound.height;
+		inOffset *= bound.width;
+		inOffset += x*bound.width;
+		inOffset *= 4;
+
+		printf("%d\n", inOffset);
+		if(inOffset >= 4*bound.height*bound.width || inOffset < 0) continue;
+		for (int j=0; j<4; j++) dst_buf[outOffset + j] = src_buf[inOffset + j];
 	}
 
 	gegl_buffer_set
@@ -189,7 +205,7 @@ gegl_op_class_init (GeglOpClass *klass)
 	operation_class->prepare = prepare;
 	//operation_class->get_bounding_box = get_bounding_box;
 	//operation_class->get_required_for_output = get_required_for_output;
-	operation_class->threaded                = TRUE;
+	operation_class->threaded                = FALSE;
 
 	gegl_operation_class_set_keys (operation_class,
 			"name"       , "gegl:ggt",
