@@ -92,6 +92,9 @@ prepare (GeglOperation *operation)
 	gegl_operation_set_format (operation, "output", babl_format ("RGBA u8"));
 }
 
+
+guchar *src_buf = NULL;
+
 static gboolean
 process (GeglOperation       *operation,
 		GeglBuffer          *input,
@@ -102,12 +105,30 @@ process (GeglOperation       *operation,
 	GeglProperties *o = GEGL_PROPERTIES (operation);
 	GeglRectangle bound =
 	*gegl_operation_source_get_bounding_box(operation, "input");
-	GeglSampler *sampler;
+	//GeglSampler *sampler;
+	//sampler = gegl_buffer_sampler_new(input, babl_format("RGBA u8"), GEGL_SAMPLER_NEAREST);
+
+	guchar *dst_buf = g_new0(guchar, result->width * result->height * 4);
+	if(src_buf == NULL)
+	{
+		src_buf = g_new0(guchar, bound.width * bound.height * 4);
+		gegl_buffer_get
+		(input, NULL, 1.0, babl_format("RGBA u8"), src_buf, GEGL_AUTO_ROWSTRIDE, GEGL_ABYSS_NONE);
+	}
+
+	//FILE *imgDump = fopen("/tmp/imgDump", "w");
+	//if(imgDump == NULL)
+	//{
+	//	puts("File open error.");
+	//	return 1;
+	//}
+	//fwrite(src_buf, 1, 4*bound.width*bound.height, imgDump);
+	//g_free(src_buf);
+	//return TRUE;
 
 	gint inOffset, outOffset;
 	gint X, Y;
 	gdouble	t, x, y, z;
-	guchar	*src_buf, *dst_buf;
 
 	gdouble rWidth = 1.0/bound.width;
 	gdouble rHeight = 1.0/bound.height;
@@ -119,24 +140,6 @@ process (GeglOperation       *operation,
 	gdouble ySin = sin(o->yAngle);
 	gdouble zCos = cos(o->zAngle);
 	gdouble zSin = sin(o->zAngle);
-
-	//sampler = gegl_buffer_sampler_new(input, babl_format("RGBA u8"), GEGL_SAMPLER_NEAREST);
-
-	dst_buf	= g_new0 (guchar, result->width * result->height * 4);
-	src_buf	= g_new0 (guchar, bound.width * bound.height * 4);
-
-	gegl_buffer_get
-	(input, NULL, 1.0, babl_format("RGBA u8"), src_buf, GEGL_AUTO_ROWSTRIDE, GEGL_ABYSS_NONE);
-
-	//FILE *imgDump = fopen("/tmp/imgDump", "w");
-	//if(imgDump == NULL)
-	//{
-	//	puts("File open error.");
-	//	return 1;
-	//}
-	//fwrite(src_buf, 1, 4*bound.width*bound.height, imgDump);
-	//g_free(src_buf);
-	//return TRUE;
 
 	for (Y = result->y; Y < result->y + result->height; ++Y)
 	for (X = result->x; X < result->x + result->width; ++X)
@@ -178,7 +181,6 @@ process (GeglOperation       *operation,
 		inOffset += x*bound.width;
 		inOffset *= 4;
 
-		printf("%d\n", inOffset);
 		if(inOffset >= 4*bound.height*bound.width || inOffset < 0) continue;
 		for (int j=0; j<4; j++) dst_buf[outOffset + j] = src_buf[inOffset + j];
 	}
@@ -187,31 +189,38 @@ process (GeglOperation       *operation,
 	(output, result, 0, babl_format ("RGBA u8"), dst_buf, GEGL_AUTO_ROWSTRIDE);
 
 	g_free (dst_buf);
-	g_free (src_buf);
 
 	return TRUE;
 }
 
 static void
+finalize()
+{
+	g_free(src_buf);
+}
+
+static void
 gegl_op_class_init (GeglOpClass *klass)
 {
-	GeglOperationClass       *operation_class;
+	GObjectClass *object_class;
+	GeglOperationClass *operation_class;
 	GeglOperationFilterClass *filter_class;
 
+	object_class = G_OBJECT_CLASS(klass);
 	operation_class = GEGL_OPERATION_CLASS (klass);
-	filter_class    = GEGL_OPERATION_FILTER_CLASS (klass);
+	filter_class = GEGL_OPERATION_FILTER_CLASS (klass);
 
+	object_class->finalize = finalize;
 	filter_class->process = process;
 	operation_class->prepare = prepare;
 	//operation_class->get_bounding_box = get_bounding_box;
 	//operation_class->get_required_for_output = get_required_for_output;
-	operation_class->threaded                = FALSE;
 
 	gegl_operation_class_set_keys (operation_class,
 			"name"       , "gegl:ggt",
-			"categories" , "blur",
+			"categories" , "map",
 			"description",
-			_("Copies image performing lens distortion correction."),
+			_("General geometric transformation."),
 			NULL);
 }
 
