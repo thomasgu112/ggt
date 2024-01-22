@@ -8,6 +8,6 @@ mkdir -p $BUILD_DIR && cd $BUILD_DIR && meson -Dprefix=$PREFIX --buildtype=relea
 
 cp ../obj/ggt.so ~/.local/share/gegl-0.4/plug-ins
 
-gimp /tmp/jelly.jpg
+gimp /tmp/jelly.png
 #gimp /tmp/sr.png
 #gimp /tmp/sample.xcf

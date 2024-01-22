@@ -25,26 +25,31 @@
 
 #ifdef GEGL_PROPERTIES
 
-property_double (xo, _("X Offset"), 0.0)
-value_range (-1.0, 1.0)
+property_double(xo, _("X Offset"), 0.0)
+value_range(-1.0, 1.0)
 
-property_double (yo, _("Y Offset"), 0.0)
-value_range (-1.0, 1.0)
+property_double(yo, _("Y Offset"), 0.0)
+value_range(-1.0, 1.0)
 
-property_double (sz, _("Sphere Size"), 1.0)
-value_range (0.0, 1.0)
+property_double(sz, _("Sphere Size"), 1.0)
+value_range(0.0, 1.0)
 
-property_double (ts, _("Texture Scale"), 1.0)
-value_range (0.0, 10.0)
+property_double(ts, _("Texture Scale"), 1.0)
+value_range(0.0, 10.0)
 
-property_double (xAngle, _("x Angle"), 0.0)
-value_range (-3.14, 3.14)
+property_double(xAngle, _("x Angle"), 0.0)
+value_range(-3.14, 3.14)
 
-property_double (yAngle, _("y Angle"), 0.0)
-value_range (-3.14, 3.14)
+property_double(yAngle, _("y Angle"), 0.0)
+value_range(-3.14, 3.14)
 
-property_double (zAngle, _("z Angle"), 0.0)
-value_range (-3.14, 3.14)
+property_double(zAngle, _("z Angle"), 0.0)
+value_range(-3.14, 3.14)
+
+property_boolean(purge, _("Purge Image Buffer"), FALSE)
+description
+("Due to limitations with the GEGL plugin interface, the image\n\
+buffer is only reloaded when this switch is flipped on. Bite me.")
 
 #else
 
@@ -65,53 +70,72 @@ void rotate
 }
 
 static GeglRectangle
-get_bounding_box (GeglOperation *operation)
+get_bounding_box(GeglOperation *operation)
 {
 	GeglRectangle  result = {0,0,0,0};
 	GeglRectangle *in_rect;
 
-	in_rect = gegl_operation_source_get_bounding_box (operation, "input");
-	if (!in_rect)
+	in_rect = gegl_operation_source_get_bounding_box(operation, "input");
+	if(!in_rect)
 		return result;
 
 	return *in_rect;
 }
 
 static GeglRectangle
-get_required_for_output (GeglOperation       *operation,
+get_required_for_output(GeglOperation       *operation,
 		const gchar         *input_pad,
 		const GeglRectangle *roi)
 {
-	return get_bounding_box (operation);
+	return get_bounding_box(operation);
 }
 
 static void
-prepare (GeglOperation *operation)
+prepare(GeglOperation *operation)
 {
-	gegl_operation_set_format (operation, "input", babl_format ("RGBA u8"));
-	gegl_operation_set_format (operation, "output", babl_format ("RGBA u8"));
+	gegl_operation_set_format(operation, "input", babl_format("RGBA u8"));
+	gegl_operation_set_format(operation, "output", babl_format("RGBA u8"));
 }
 
-
-guchar *src_buf = NULL;
-
 static gboolean
-process (GeglOperation       *operation,
+process(GeglOperation       *operation,
 		GeglBuffer          *input,
 		GeglBuffer          *output,
 		const GeglRectangle *result,
 		gint                 level)
 {
-	GeglProperties *o = GEGL_PROPERTIES (operation);
+	GeglProperties *o = GEGL_PROPERTIES(operation);
 	GeglRectangle bound =
 	*gegl_operation_source_get_bounding_box(operation, "input");
 	//GeglSampler *sampler;
 	//sampler = gegl_buffer_sampler_new(input, babl_format("RGBA u8"), GEGL_SAMPLER_NEAREST);
 
+	//there is no straightforward way apparent to me to run code
+	//exactly once for each time the base image changes, nor when
+	//the deed is done, so to prevent memory leaks as well as
+	//having to construct a pixel buffer over and over I make use
+	//of a static
+	//the source image buffer is purged at user discretion which
+	//I think is a fine solution
 	guchar *dst_buf = g_new0(guchar, result->width * result->height * 4);
+	static guchar *src_buf = NULL;
+	static gboolean purged = FALSE;
+
+	if(o->purge && !purged)
+	{
+		printf("Freeing pixel buffer at %lx\n", src_buf);
+		g_free(src_buf);
+		src_buf = NULL;
+		purged = TRUE;
+	}
+
+	purged = o->purge;
+
 	if(src_buf == NULL)
 	{
 		src_buf = g_new0(guchar, bound.width * bound.height * 4);
+
+		printf("Writing pixel buffer to %lx\n", src_buf);
 		gegl_buffer_get
 		(input, NULL, 1.0, babl_format("RGBA u8"), src_buf, GEGL_AUTO_ROWSTRIDE, GEGL_ABYSS_NONE);
 	}
@@ -141,8 +165,8 @@ process (GeglOperation       *operation,
 	gdouble zCos = cos(o->zAngle);
 	gdouble zSin = sin(o->zAngle);
 
-	for (Y = result->y; Y < result->y + result->height; ++Y)
-	for (X = result->x; X < result->x + result->width; ++X)
+	for(Y = result->y; Y < result->y + result->height; ++Y)
+	for(X = result->x; X < result->x + result->width; ++X)
 	{
 		x = ((2*X - bound.width)*rWidth - o->xo)*rSize;
 		y = ((2*Y - bound.height)*rHeight - o->yo)*rSize;
@@ -174,7 +198,7 @@ process (GeglOperation       *operation,
 		//guchar color[4];
 		//gegl_sampler_get
 		//(sampler, x*bound.width, y*bound.height, NULL, color, GEGL_ABYSS_NONE);
-		//for (int j=0; j<4; j++) dst_buf[outOffset + j] = color[j];
+		//for(int j=0; j<4; j++) dst_buf[outOffset + j] = color[j];
 
 		inOffset  = y*bound.height;
 		inOffset *= bound.width;
@@ -182,41 +206,35 @@ process (GeglOperation       *operation,
 		inOffset *= 4;
 
 		if(inOffset >= 4*bound.height*bound.width || inOffset < 0) continue;
-		for (int j=0; j<4; j++) dst_buf[outOffset + j] = src_buf[inOffset + j];
+		for(int j=0; j<4; j++) dst_buf[outOffset + j] = src_buf[inOffset + j];
 	}
 
 	gegl_buffer_set
-	(output, result, 0, babl_format ("RGBA u8"), dst_buf, GEGL_AUTO_ROWSTRIDE);
+	(output, result, 0, babl_format("RGBA u8"), dst_buf, GEGL_AUTO_ROWSTRIDE);
 
-	g_free (dst_buf);
+	g_free(dst_buf);
+	//g_free(src_buf);
 
 	return TRUE;
 }
 
 static void
-finalize()
+gegl_op_class_init(GeglOpClass *klass)
 {
-	g_free(src_buf);
-}
-
-static void
-gegl_op_class_init (GeglOpClass *klass)
-{
-	GObjectClass *object_class;
 	GeglOperationClass *operation_class;
 	GeglOperationFilterClass *filter_class;
 
-	object_class = G_OBJECT_CLASS(klass);
-	operation_class = GEGL_OPERATION_CLASS (klass);
-	filter_class = GEGL_OPERATION_FILTER_CLASS (klass);
+	operation_class = GEGL_OPERATION_CLASS(klass);
+	filter_class = GEGL_OPERATION_FILTER_CLASS(klass);
 
-	object_class->finalize = finalize;
 	filter_class->process = process;
 	operation_class->prepare = prepare;
 	//operation_class->get_bounding_box = get_bounding_box;
 	//operation_class->get_required_for_output = get_required_for_output;
+	operation_class->threaded = FALSE;
 
-	gegl_operation_class_set_keys (operation_class,
+
+	gegl_operation_class_set_keys(operation_class,
 			"name"       , "gegl:ggt",
 			"categories" , "map",
 			"description",
