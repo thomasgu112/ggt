@@ -20,8 +20,6 @@
 
 #include "config.h"
 #include <glib/gi18n-lib.h>
-#include <math.h>
-
 
 #ifdef GEGL_PROPERTIES
 
@@ -46,24 +44,164 @@ value_range(-3.14, 3.14)
 property_double(zAngle, _("z Angle"), 0.0)
 value_range(-3.14, 3.14)
 
-property_boolean(purge, _("Purge Image Buffer"), FALSE)
-description
-("Due to limitations with the GEGL plugin interface, the image\n\
-buffer is only reloaded when this switch is flipped on. Bite me.")
+property_boolean(purge, _("Purge"), FALSE)
+description("Flip this on if something is weird.")
 
 #else
-
 #define GEGL_OP_FILTER
 #define GEGL_OP_NAME     ggt
 #define GEGL_OP_C_SOURCE ggt.c
 
 #include "gegl-op.h"
+#include <math.h>
 #include <stdio.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <signal.h>
+#include <GL/glew.h>
+#include <GLFW/glfw3.h>
+
+//TODO
+//runtime shader swapping
+//shader compilation error reporting
+
+void debug(char *msg)
+{
+	puts("msg");
+	raise(SIGTRAP);
+	return;
+}
+
+void loadFile(const char *path, void **data, uint32_t *length)
+{
+	FILE *file = fopen(path, "r");
+	if(file == NULL)
+	{
+		puts("File open error.");
+		raise(SIGTRAP);
+	}
+	fseek(file, 0, SEEK_END);
+	*length = ftell(file);
+	fseek(file, 0, SEEK_SET);
+	*data = malloc(*length);
+	fread(*data, 1, *length, file);
+	fclose(file);
+}
+
+uint32_t shaderFileAttach(uint32_t prog, const char *path, uint32_t sort)
+{
+	char *sourceText; uint32_t len;
+	loadFile(path, &sourceText, &len);
+
+	uint32_t s = glCreateShader(sort);
+	glShaderSource(s, 1, &sourceText, &len);
+	free(sourceText);
+
+	glCompileShader(s);
+	uint32_t sCompiled;
+	glGetShaderiv(s, GL_COMPILE_STATUS, &sCompiled);
+	if(!sCompiled)
+	{
+		puts("Shader compilation error.");
+		raise(SIGTRAP);
+	}
+
+	glAttachShader(prog, s);
+	return s;
+}
+
+//this is stuff that should really only be run once per the user
+//invoking the plugin, but because I'm not seeing a good way
+//to do that it will be run at user discretion
+void purge(GeglRectangle *bound, GeglBuffer *input)
+{ 
+	char *src_buf;
+	float *img_coo;
+	int32_t w = bound->width;
+	int32_t h = bound->height;
+
+	if(!glfwInit()) debug("GLFW Initialization failed.");
+
+	static GLFWwindow* window = NULL;
+	glfwDestroyWindow(window);
+	glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
+	window = glfwCreateWindow(w, h, "IRIS", NULL, NULL);
+	if(window == NULL) debug("Failed to create GLFW window.");
+	glfwMakeContextCurrent(window);
+
+	if(glewInit() != GLEW_OK) puts("GLEW Initialization failed.");
+
+	src_buf = malloc(w * h * 4);
+	gegl_buffer_get
+	(input, NULL, 1.0, babl_format("RGBA u8"), src_buf, GEGL_AUTO_ROWSTRIDE, GEGL_ABYSS_NONE);
+
+	uint32_t img_coo_siz = 4*sizeof(float)*(w + 1)*h;
+	img_coo = malloc(img_coo_siz);
+	{
+		uint32_t index = 0;
+		for(int32_t b = 0; b < h; b += 1)
+		{
+			for(int32_t a = 0; a < w; a += 1)
+			{
+				img_coo[index++] = ((float) (2*a + 1 - w))/(w - 1);
+				img_coo[index++] = ((float) (2*b + 1 - h))/(h - 1);
+				img_coo[index++] = ((float) (2*a + 1 - w))/(w - 1);
+				img_coo[index++] = ((float) (2*b + 3 - h))/(h - 1);
+			}
+			img_coo[index++] = 1.0;
+			img_coo[index++] = ((float) (2*b + 3 - h))/(h - 1);
+			img_coo[index++] = -1.0;
+			img_coo[index++] = ((float) (2*b + 3 - h))/(h - 1);
+		}
+	}
+
+	static uint32_t VertexArrayID = 0;
+	glDeleteVertexArrays(1, &VertexArrayID);
+	glGenVertexArrays(1, &VertexArrayID);
+	glBindVertexArray(VertexArrayID);
+
+	static uint32_t vertexbuffer = 0;
+	glDeleteBuffers(1, &vertexbuffer);
+	glGenBuffers(1, &vertexbuffer);
+	glBindBuffer(GL_ARRAY_BUFFER, vertexbuffer);
+	glBufferData(GL_ARRAY_BUFFER, img_coo_siz, img_coo, GL_STATIC_DRAW);
+	free(img_coo);
+
+	static uint32_t prog = 0;
+	glDeleteProgram(prog);
+	prog = glCreateProgram();
+
+	static uint32_t vs = 0;
+	static uint32_t fs = 0;
+	glDetachShader(prog, vs);
+	glDetachShader(prog, fs);
+	glDeleteShader(vs);
+	glDeleteShader(fs);
+	vs = shaderFileAttach(prog, "iris.vert", GL_VERTEX_SHADER);
+	fs = shaderFileAttach(prog, "iris.frag", GL_FRAGMENT_SHADER);
+
+	glLinkProgram(prog);
+	glUseProgram(prog);
+
+	static uint32_t texture = 0;
+	glDeleteTextures(1, &texture);
+	glGenTextures(1, &texture);
+	glBindTexture(GL_TEXTURE_2D, texture);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, src_buf);
+	free(src_buf);
+
+	glEnableVertexAttribArray(0);
+	glBindBuffer(GL_ARRAY_BUFFER, vertexbuffer);
+	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, NULL);
+	//glClear( GL_COLOR_BUFFER_BIT );
+	//glDrawArrays(GL_TRIANGLE_STRIP, 0, 2*(w + 1)*h);
+	//glDisableVertexAttribArray(0);
+}
 
 void rotate
-(gdouble *a, gdouble *b, gdouble c, gdouble s)
+(gfloat *a, gfloat *b, gfloat c, gfloat s)
 {
-	gdouble t = *a;
+	gfloat t = *a;
 	*a = c*(*a) + s*(*b);
 	*b = c*(*b) - s*t;
 	return;
@@ -118,27 +256,14 @@ process(GeglOperation       *operation,
 	//the source image buffer is purged at user discretion which
 	//I think is a fine solution
 	guchar *dst_buf = g_new0(guchar, result->width * result->height * 4);
-	static guchar *src_buf = NULL;
-	static gboolean purged = FALSE;
 
-	if(o->purge && !purged)
+	static gboolean purged = FALSE;
+	if(!purged && o->purge)
 	{
-		printf("Freeing pixel buffer at %p\n", src_buf);
-		g_free(src_buf);
-		src_buf = NULL;
+		purge(bound, input);
 		purged = TRUE;
 	}
-
 	purged = o->purge;
-
-	if(src_buf == NULL)
-	{
-		src_buf = g_new0(guchar, bound.width * bound.height * 4);
-
-		printf("Writing pixel buffer to %p\n", src_buf);
-		gegl_buffer_get
-		(input, NULL, 1.0, babl_format("RGBA u8"), src_buf, GEGL_AUTO_ROWSTRIDE, GEGL_ABYSS_NONE);
-	}
 
 	//FILE *imgDump = fopen("/tmp/imgDump", "w");
 	//if(imgDump == NULL)
@@ -152,18 +277,18 @@ process(GeglOperation       *operation,
 
 	gint inOffset, outOffset;
 	gint X, Y;
-	gdouble	t, x, y, z;
+	gfloat	t, x, y, z;
 
-	gdouble rWidth = 1.0/bound.width;
-	gdouble rHeight = 1.0/bound.height;
-	gdouble rSize = 1.0/o->sz;
+	gfloat rWidth = 1.0/bound.width;
+	gfloat rHeight = 1.0/bound.height;
+	gfloat rSize = 1.0/o->sz;
 
-	gdouble xCos = cos(o->xAngle);
-	gdouble xSin = sin(o->xAngle);
-	gdouble yCos = cos(o->yAngle);
-	gdouble ySin = sin(o->yAngle);
-	gdouble zCos = cos(o->zAngle);
-	gdouble zSin = sin(o->zAngle);
+	gfloat xCos = cos(o->xAngle);
+	gfloat xSin = sin(o->xAngle);
+	gfloat yCos = cos(o->yAngle);
+	gfloat ySin = sin(o->yAngle);
+	gfloat zCos = cos(o->zAngle);
+	gfloat zSin = sin(o->zAngle);
 
 	for(Y = result->y; Y < result->y + result->height; ++Y)
 	for(X = result->x; X < result->x + result->width; ++X)

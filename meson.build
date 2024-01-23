@@ -35,7 +35,9 @@ shlib = shared_library('ggt', 'ggt.c', 'config.h',
 
   dependencies :
     [dependency('gegl-0.4'),
-     dependency('lensfun'),
+     dependency('GL'),
+     dependency('glew'),
+     dependency('glfw3'),
      math],
 
   name_prefix : '',
