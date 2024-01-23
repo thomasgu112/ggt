@@ -1,23 +1,3 @@
-/* This file is an image processing operation for GEGL
- *
- * GEGL is free software; you can redistribute it and/or
- * modify it under the terms of the GNU Lesser General Public
- * License as published by the Free Software Foundation; either
- * version 3 of the License, or (at your option) any later version.
- *
- * GEGL is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * Lesser General Public License for more details.
- *
- * You should have received a copy of the GNU Lesser General Public
- * License along with GEGL; if not, see <https://www.gnu.org/licenses/>.
- *
- * Copyright 2006 Øyvind Kolås <pippin@gimp.org>
- * Copyright 2008 Bradley Broom <bmbroom@gmail.com>
- * Copyright 2011 Robert Sasu <sasu.robert@gmail.com>
- */
-
 #include "config.h"
 #include <glib/gi18n-lib.h>
 
@@ -33,6 +13,41 @@ property_double(c_var, _("c"), 0.0)
 value_range(-1.0, 1.0)
 
 property_boolean(purge, _("Purge"), FALSE)
+description("When this is switched on, shaders are \
+recompiled and the base image texture is reloaded.")
+
+property_string(vertexShader, _("Vertex Shader"), "\
+#version 460 core\n\
+\n\
+//layout(location = 0) in vec2 icv;\n\
+in vec2 icv;\n\
+out vec2 icf;\n\
+\n\
+void main()\n\
+{\n\
+	icf = icv;\n\
+	gl_Position.x = abs(icv.x)*icv.x;\n\
+	gl_Position.y = icv.y;\n\
+	gl_Position.z = 0.0;\n\
+	gl_Position.w = 1.0;\n\
+}\n\
+")
+ui_meta("multiline", "true")
+
+property_string(fragmentShader, _("Fragment Shader"), "\
+#version 460 core\n\
+\n\
+in vec2 icf;\n\
+out vec4 color;\n\
+uniform sampler2D sam;\n\
+\n\
+void main()\n\
+{\n\
+	vec2 uv = 0.5*(icf - 1.0);\n\
+    color = texture(sam, uv).rgba;\n\
+}\n\
+")
+ui_meta("multiline", "true")
 
 #else
 #define GEGL_OP_FILTER
@@ -93,7 +108,6 @@ uint32_t shaderFileAttach(uint32_t prog, const char *path, uint32_t sort)
 //to do that it will be run at user discretion
 void purge(GeglRectangle *bound, GeglBuffer *input)
 { 
-	system("notify-send $PWD");
 	char *src_buf;
 	float *img_coo;
 	int32_t w = bound->width;
@@ -204,6 +218,7 @@ get_required_for_output(GeglOperation       *operation,
 static void
 prepare(GeglOperation *operation)
 {
+	static int32_t initialized = 0;
 	gegl_operation_set_format(operation, "input", babl_format("RGBA u8"));
 	gegl_operation_set_format(operation, "output", babl_format("RGBA u8"));
 }
