@@ -23,29 +23,16 @@
 
 #ifdef GEGL_PROPERTIES
 
-property_double(xo, _("X Offset"), 0.0)
+property_double(a_var, _("a"), 0.0)
 value_range(-1.0, 1.0)
 
-property_double(yo, _("Y Offset"), 0.0)
+property_double(b_var, _("b"), 0.0)
 value_range(-1.0, 1.0)
 
-property_double(sz, _("Sphere Size"), 1.0)
-value_range(0.0, 1.0)
-
-property_double(ts, _("Texture Scale"), 1.0)
-value_range(0.0, 10.0)
-
-property_double(xAngle, _("x Angle"), 0.0)
-value_range(-3.14, 3.14)
-
-property_double(yAngle, _("y Angle"), 0.0)
-value_range(-3.14, 3.14)
-
-property_double(zAngle, _("z Angle"), 0.0)
-value_range(-3.14, 3.14)
+property_double(c_var, _("c"), 0.0)
+value_range(-1.0, 1.0)
 
 property_boolean(purge, _("Purge"), FALSE)
-description("Flip this on if something is weird.")
 
 #else
 #define GEGL_OP_FILTER
@@ -53,7 +40,6 @@ description("Flip this on if something is weird.")
 #define GEGL_OP_C_SOURCE ggt.c
 
 #include "gegl-op.h"
-#include <math.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -192,15 +178,6 @@ void purge(GeglRectangle *bound, GeglBuffer *input)
 
 	glDrawArrays(GL_TRIANGLE_STRIP, 0, 2*(w + 1)*h);
 	glDisableVertexAttribArray(0);
-}
-
-void rotate
-(gfloat *a, gfloat *b, gfloat c, gfloat s)
-{
-	gfloat t = *a;
-	*a = c*(*a) + s*(*b);
-	*b = c*(*b) - s*t;
-	return;
 }
 
 static GeglRectangle

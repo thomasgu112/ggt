@@ -9,5 +9,6 @@ void main()
 	icf = icv;
 	gl_Position.x = abs(icv.x)*icv.x;
 	gl_Position.y = icv.y;
-	gl_Position.zw = vec2(0.0, 1.0);
+	gl_Position.z = 0.0;
+	gl_Position.w = 1.0;
 }
