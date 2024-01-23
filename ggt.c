@@ -123,7 +123,7 @@ process(GeglOperation       *operation,
 
 	if(o->purge && !purged)
 	{
-		printf("Freeing pixel buffer at %lx\n", src_buf);
+		printf("Freeing pixel buffer at %p\n", src_buf);
 		g_free(src_buf);
 		src_buf = NULL;
 		purged = TRUE;
@@ -135,7 +135,7 @@ process(GeglOperation       *operation,
 	{
 		src_buf = g_new0(guchar, bound.width * bound.height * 4);
 
-		printf("Writing pixel buffer to %lx\n", src_buf);
+		printf("Writing pixel buffer to %p\n", src_buf);
 		gegl_buffer_get
 		(input, NULL, 1.0, babl_format("RGBA u8"), src_buf, GEGL_AUTO_ROWSTRIDE, GEGL_ABYSS_NONE);
 	}
