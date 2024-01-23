@@ -67,7 +67,7 @@ description("Flip this on if something is weird.")
 
 void debug(char *msg)
 {
-	puts("msg");
+	puts(msg);
 	raise(SIGTRAP);
 	return;
 }
@@ -75,11 +75,7 @@ void debug(char *msg)
 void loadFile(const char *path, void **data, uint32_t *length)
 {
 	FILE *file = fopen(path, "r");
-	if(file == NULL)
-	{
-		puts("File open error.");
-		raise(SIGTRAP);
-	}
+	if(file == NULL) debug("File open error.");
 	fseek(file, 0, SEEK_END);
 	*length = ftell(file);
 	fseek(file, 0, SEEK_SET);
@@ -100,11 +96,7 @@ uint32_t shaderFileAttach(uint32_t prog, const char *path, uint32_t sort)
 	glCompileShader(s);
 	uint32_t sCompiled;
 	glGetShaderiv(s, GL_COMPILE_STATUS, &sCompiled);
-	if(!sCompiled)
-	{
-		puts("Shader compilation error.");
-		raise(SIGTRAP);
-	}
+	if(!sCompiled) debug("Shader compilation error.");
 
 	glAttachShader(prog, s);
 	return s;
@@ -115,6 +107,7 @@ uint32_t shaderFileAttach(uint32_t prog, const char *path, uint32_t sort)
 //to do that it will be run at user discretion
 void purge(GeglRectangle *bound, GeglBuffer *input)
 { 
+	system("notify-send $PWD");
 	char *src_buf;
 	float *img_coo;
 	int32_t w = bound->width;
@@ -189,13 +182,16 @@ void purge(GeglRectangle *bound, GeglBuffer *input)
 	glBindTexture(GL_TEXTURE_2D, texture);
 	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, src_buf);
 	free(src_buf);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 
+	glClear(GL_COLOR_BUFFER_BIT);
 	glEnableVertexAttribArray(0);
 	glBindBuffer(GL_ARRAY_BUFFER, vertexbuffer);
 	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, NULL);
-	//glClear( GL_COLOR_BUFFER_BIT );
-	//glDrawArrays(GL_TRIANGLE_STRIP, 0, 2*(w + 1)*h);
-	//glDisableVertexAttribArray(0);
+
+	glDrawArrays(GL_TRIANGLE_STRIP, 0, 2*(w + 1)*h);
+	glDisableVertexAttribArray(0);
 }
 
 void rotate
@@ -258,84 +254,16 @@ process(GeglOperation       *operation,
 	guchar *dst_buf = g_new0(guchar, result->width * result->height * 4);
 
 	static gboolean purged = FALSE;
-	if(!purged && o->purge)
-	{
-		purge(bound, input);
-		purged = TRUE;
-	}
+	if(!purged && o->purge) purge(&bound, input);
 	purged = o->purge;
 
-	//FILE *imgDump = fopen("/tmp/imgDump", "w");
-	//if(imgDump == NULL)
-	//{
-	//	puts("File open error.");
-	//	return 1;
-	//}
-	//fwrite(src_buf, 1, 4*bound.width*bound.height, imgDump);
-	//g_free(src_buf);
-	//return TRUE;
+	glReadPixels(	result->x, result->y,
+					result->width, result->height,
+					GL_RGBA, GL_UNSIGNED_BYTE, dst_buf	);
 
-	gint inOffset, outOffset;
-	gint X, Y;
-	gfloat	t, x, y, z;
-
-	gfloat rWidth = 1.0/bound.width;
-	gfloat rHeight = 1.0/bound.height;
-	gfloat rSize = 1.0/o->sz;
-
-	gfloat xCos = cos(o->xAngle);
-	gfloat xSin = sin(o->xAngle);
-	gfloat yCos = cos(o->yAngle);
-	gfloat ySin = sin(o->yAngle);
-	gfloat zCos = cos(o->zAngle);
-	gfloat zSin = sin(o->zAngle);
-
-	for(Y = result->y; Y < result->y + result->height; ++Y)
-	for(X = result->x; X < result->x + result->width; ++X)
-	{
-		x = ((2*X - bound.width)*rWidth - o->xo)*rSize;
-		y = ((2*Y - bound.height)*rHeight - o->yo)*rSize;
-		if(x*x + y*y > 1.0) continue;
-
-		z = -sqrt(1.0 - x*x - y*y);
-		rotate(&y, &z, xCos, xSin);
-		rotate(&z, &x, yCos, ySin);
-		rotate(&x, &y, zCos, zSin);
-		//t = x;
-		//x = cosi*x + sine*z;
-		//z = cosi*z - sine*t;
-		//if(z > 0.0) continue;
-
-		//z = 1.0/(1.0 - z);
-		//x = x*z;
-		//y = y*z;
-		t = sqrt(x*x + y*y);
-		x *= 0.64*acos(-z)/t;
-		y *= 0.64*acos(-z)/t;
-
-		x = 0.5*(o->ts*x + 1.0);
-		y = 0.5*(o->ts*y + 1.0);
-
-		if(x < 0.0 || y < 0.0 || x > 1.0 || y > 1.0) continue;
-		
-		outOffset = (Y - result->y) * result->width * 4 + (X - result->x) * 4;
-
-		//guchar color[4];
-		//gegl_sampler_get
-		//(sampler, x*bound.width, y*bound.height, NULL, color, GEGL_ABYSS_NONE);
-		//for(int j=0; j<4; j++) dst_buf[outOffset + j] = color[j];
-
-		inOffset  = y*bound.height;
-		inOffset *= bound.width;
-		inOffset += x*bound.width;
-		inOffset *= 4;
-
-		if(inOffset >= 4*bound.height*bound.width || inOffset < 0) continue;
-		for(int j=0; j<4; j++) dst_buf[outOffset + j] = src_buf[inOffset + j];
-	}
-
-	gegl_buffer_set
-	(output, result, 0, babl_format("RGBA u8"), dst_buf, GEGL_AUTO_ROWSTRIDE);
+	gegl_buffer_set(output, result, 0,
+					babl_format("RGBA u8"),
+					dst_buf, GEGL_AUTO_ROWSTRIDE);
 
 	g_free(dst_buf);
 	//g_free(src_buf);
