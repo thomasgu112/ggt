@@ -29,7 +29,7 @@ void main()\n\
 {\n\
 	icf = icv;\n\
 	gl_Position.x = icv.x + a;\n\
-	gl_Position.y = icv.y + b;\n\
+	gl_Position.y = icv.y;\n\
 	gl_Position.z = 0.0;\n\
 	gl_Position.w = 1.0;\n\
 }\n\
@@ -46,7 +46,7 @@ uniform sampler2D sam;\n\
 void main()\n\
 {\n\
 	vec2 uv = 0.5*(icf - 1.0);\n\
-    color = texture(sam, uv).rgba;\n\
+	color = texture(sam, uv).rgba;\n\
 }\n\
 ")
 ui_meta("multiline", "true")
@@ -134,11 +134,11 @@ void reloadBuffers(GeglRectangle *bound, GeglBuffer *input)
 
 void shaderTextAttach(uint32_t prog, const char *sourceText, uint32_t sort)
 {
-	uint32_t s = glCreateShader(sort);
+	int32_t s = glCreateShader(sort);
 	glShaderSource(s, 1, &sourceText, NULL);
 
 	glCompileShader(s);
-	uint32_t sCompiled;
+	int32_t sCompiled;
 	glGetShaderiv(s, GL_COMPILE_STATUS, &sCompiled);
 	if(!sCompiled)
 	{
@@ -170,7 +170,7 @@ prepare(GeglOperation *operation)
 	GeglProperties *o = GEGL_PROPERTIES(operation);
 	GeglRectangle *boundRef =
 	gegl_operation_source_get_bounding_box(operation, "input");
-	if(boundRef == NULL) debug("bruh");
+	if(boundRef == NULL) return;
 	GeglRectangle bound = *boundRef;
 
 	gegl_operation_set_format(operation, "input", babl_format("RGBA u8"));
@@ -194,11 +194,26 @@ prepare(GeglOperation *operation)
 
 		if(glewInit() != GLEW_OK) debug("GLEW Initialization failed.");
 
-		if(!initialized) prog = glCreateProgram();
+		glDeleteProgram(prog);
+		prog = glCreateProgram();
+		puts("Program created.");
+		if(prog == 0) puts("Program creation error.");
 		initialized = 1;
 
 		reloadShaders(operation, prog);
 		glLinkProgram(prog);
+		int linkSuccess = GL_FALSE;
+		glGetProgramiv(prog, GL_LINK_STATUS, &linkSuccess);
+		if(linkSuccess != GL_TRUE)
+		{
+			puts("Program link error.");
+			char log[4096];
+			glGetProgramInfoLog(prog, 4096, NULL, log);
+			int error = glGetError();
+			if(error == GL_INVALID_OPERATION) puts("Program object does not exist.");
+			else if(error == GL_INVALID_VALUE) printf("Impossible program value: %d.\n", prog);
+			else printf("Info log:\n%s", log);
+		}
 		glUseProgram(prog);
 	}
 	purged = o->purge;
@@ -224,6 +239,10 @@ process(GeglOperation       *operation,
 	GeglProperties *o = GEGL_PROPERTIES(operation);
 	GeglRectangle bound =
 	*gegl_operation_source_get_bounding_box(operation, "input");
+
+	static int prepped = 0;
+	if(!prepped) prepare(operation);
+	prepped = 1;
 
 	guchar *dst_buf = g_new0(guchar, result->width * result->height * 4);
 
