@@ -16,7 +16,7 @@ property_boolean(purge, _("Purge"), FALSE)
 description("When this is switched on, shaders are \
 recompiled and the base image texture is reloaded.")
 
-property_string(vertexShader, _("Vertex Shader"), "\
+property_string(vst, _("Vertex Shader"), "\
 #version 460 core\n\
 \n\
 in vec2 icv;\n\
@@ -28,15 +28,15 @@ uniform float c;\n\
 void main()\n\
 {\n\
 	icf = icv;\n\
-	gl_Position.x = icv.x + 0.5*(a + 1.0)icv.x*abs(icv.x);\n\
-	gl_Position.y = icv.y;\n\
+	gl_Position.x = icv.x + a;\n\
+	gl_Position.y = icv.y + b;\n\
 	gl_Position.z = 0.0;\n\
 	gl_Position.w = 1.0;\n\
 }\n\
 ")
 ui_meta("multiline", "true")
 
-property_string(fragmentShader, _("Fragment Shader"), "\
+property_string(fst, _("Fragment Shader"), "\
 #version 460 core\n\
 \n\
 in vec2 icf;\n\
@@ -105,13 +105,31 @@ uint32_t shaderFileAttach(uint32_t prog, const char *path, uint32_t sort)
 	return s;
 }
 
+uint32_t shaderTextAttach(uint32_t prog, const char *sourceText, uint32_t sort)
+{
+	uint32_t s = glCreateShader(sort);
+	glShaderSource(s, 1, &sourceText, NULL);
+
+	glCompileShader(s);
+	uint32_t sCompiled;
+	glGetShaderiv(s, GL_COMPILE_STATUS, &sCompiled);
+	if(!sCompiled)
+	{
+		printf("Shader compilation error. Offending shader:\n%s", sourceText);
+		raise(SIGTRAP);
+	}
+
+	glAttachShader(prog, s);
+	return s;
+}
+
 uint32_t initialized = 0;
 uint32_t prog = 0;
 
 //this is stuff that should really only be run once per the user
 //invoking the plugin, but because I'm not seeing a good way
 //to do that it will be run at user discretion
-void purge(GeglRectangle *bound, GeglBuffer *input)
+void purge(GeglRectangle *bound, GeglBuffer *input, char *vst, char *fst)
 { 
 	char *src_buf;
 	float *img_coo;
@@ -174,8 +192,8 @@ void purge(GeglRectangle *bound, GeglBuffer *input)
 	glDetachShader(prog, fs);
 	glDeleteShader(vs);
 	glDeleteShader(fs);
-	vs = shaderFileAttach(prog, "iris.vert", GL_VERTEX_SHADER);
-	fs = shaderFileAttach(prog, "iris.frag", GL_FRAGMENT_SHADER);
+	vs = shaderTextAttach(prog, vst, GL_VERTEX_SHADER);
+	fs = shaderTextAttach(prog, fst, GL_FRAGMENT_SHADER);
 
 	glLinkProgram(prog);
 	glUseProgram(prog);
@@ -207,8 +225,13 @@ prepare(GeglOperation *operation)
 		GeglProperties *o = GEGL_PROPERTIES(operation);
 		GeglRectangle bound =
 		*gegl_operation_source_get_bounding_box(operation, "input");
+
 		uint32_t a_loc = glGetUniformLocation(prog, "a");
 		glUniform1f(a_loc, o->a_var);
+		uint32_t b_loc = glGetUniformLocation(prog, "b");
+		glUniform1f(b_loc, o->b_var);
+		uint32_t c_loc = glGetUniformLocation(prog, "c");
+		glUniform1f(c_loc, o->c_var);
 
 		glClear(GL_COLOR_BUFFER_BIT);
 		glDrawArrays(GL_TRIANGLE_STRIP, 0, 2*(bound.width + 1)*bound.height);
@@ -240,8 +263,10 @@ process(GeglOperation       *operation,
 	//I think is a fine solution
 	guchar *dst_buf = g_new0(guchar, result->width * result->height * 4);
 
+	printf(o->fst);
+
 	static gboolean purged = FALSE;
-	if(!purged && o->purge) purge(&bound, input);
+	if(!purged && o->purge) purge(&bound, input, o->vst, o->fst);
 	purged = o->purge;
 
 	glReadPixels(	result->x, result->y,
