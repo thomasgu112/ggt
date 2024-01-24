@@ -9,6 +9,7 @@ mkdir -p $BUILD_DIR && cd $BUILD_DIR && meson -Dprefix=$PREFIX --buildtype=relea
 
 cd ..
 cp obj/ggt.so ~/.local/share/gegl-0.4/plug-ins
+pkill -9 gimp
+#printf "\n=== PROGRAM START ===\n\n"
 #gdb --args gimp /tmp/jelly.jpg
-printf "\n=== PROGRAM START ===\n\n"
 gimp /tmp/jelly.jpg

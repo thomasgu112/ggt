@@ -46,6 +46,7 @@ uniform sampler2D sam;\n\
 void main()\n\
 {\n\
 	vec2 uv = 0.5*(icf - 1.0);\n\
+	//color = vec4(1, 0, 0, 1);\n\
 	color = texture(sam, uv).rgba;\n\
 }\n\
 ")
@@ -65,23 +66,71 @@ ui_meta("multiline", "true")
 #include <GLFW/glfw3.h>
 
 //TODO
+//use EGL instead of glfw, make it headless
+//figure out what glew does
 //optimize DMA/pixel buffer transfer
+//	user pixel buffer objects?
+//write to layer of arbitrary bounds
 //uniform arbitration
 //cursor coordinates as uniforms
 //improve UI
 //	shader storage/retrieval
 //	proper purge button
 
-void reloadBuffers(GeglRectangle *bound, GeglBuffer *input)
+void reportError(const char *msg)
+{
+	puts(msg);
+	switch(glGetError())
+	{
+		case GL_NO_ERROR:
+		puts(	"None");
+		//puts(	"GL_NO_ERROR:\nNo error has been recorded. The value of this symbolic constant is guaranteed to be 0.");
+		break;
+
+		case GL_INVALID_ENUM:
+		puts(	"GL_INVALID_ENUM:\nAn unacceptable value is specified for an enumerated argument. "
+				"The offending command is ignored and has no other side effect than to set the error flag.");
+		break;
+
+		case GL_INVALID_VALUE:
+		puts(	"GL_INVALID_VALUE:\nA numeric argument is out of range. "
+				"The offending command is ignored and has no other side effect than to set the error flag.");
+		break;
+
+		case GL_INVALID_OPERATION:
+		puts(	"GL_INVALID_OPERATION:\nThe specified operation is not allowed in the current state. "
+				"The offending command is ignored and has no other side effect than to set the error flag.");
+		break;
+
+		case GL_INVALID_FRAMEBUFFER_OPERATION:
+		puts(	"GL_INVALID_FRAMEBUFFER_OPERATION:\nThe framebuffer object is not complete. "
+				"The offending command is ignored and has no other side effect than to set the error flag.");
+		break;
+
+		case GL_OUT_OF_MEMORY:
+		puts(	"GL_OUT_OF_MEMORY:\nThere is not enough memory left to execute the command. "
+				"The state of the GL is undefined, except for the state of the error flags, after this error is recorded.");
+		break;
+
+		case GL_STACK_UNDERFLOW:
+		puts(	"GL_STACK_UNDERFLOW:\nAn attempt has been made to perform an operation that would cause an internal stack to underflow.");
+		break;
+
+		case GL_STACK_OVERFLOW:
+		puts(	"GL_STACK_OVERFLOW:\nAn attempt has been made to perform an operation that would cause an internal stack to overflow. ");
+		break;
+
+		default:
+	}
+	puts("");
+	return;
+}
+
+void reloadVertices(GeglRectangle *bound)
 { 
-	char *src_buf;
 	float *img_coo;
 	int w = bound->width;
 	int h = bound->height;
-
-	src_buf = malloc(w * h * 4);
-	gegl_buffer_get
-	(input, NULL, 1.0, babl_format("RGBA u8"), src_buf, GEGL_AUTO_ROWSTRIDE, GEGL_ABYSS_NONE);
 
 	size_t img_coo_siz = 4*sizeof(float)*(w + 1)*h;
 	img_coo = malloc(img_coo_siz);
@@ -115,6 +164,27 @@ void reloadBuffers(GeglRectangle *bound, GeglBuffer *input)
 	glBufferData(GL_ARRAY_BUFFER, img_coo_siz, img_coo, GL_STATIC_DRAW);
 	free(img_coo);
 
+	static uint32_t pbo = 0;
+	glDeleteBuffers(1, &pbo);
+	glGenBuffers(1, &pbo);
+	glBindBuffer(GL_PIXEL_PACK_BUFFER, pbo);
+	glBufferData(GL_PIXEL_PACK_BUFFER, w * h * 4, NULL, GL_STATIC_READ);
+
+	glEnableVertexAttribArray(0);
+	glBindBuffer(GL_ARRAY_BUFFER, vertexbuffer);
+	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, NULL);
+}
+
+void reloadTexture(GeglRectangle *bound, GeglBuffer *input)
+{ 
+	char *src_buf;
+	int w = bound->width;
+	int h = bound->height;
+
+	src_buf = malloc(w * h * 4);
+	gegl_buffer_get
+	(input, NULL, 1.0, babl_format("RGBA u8"), src_buf, GEGL_AUTO_ROWSTRIDE, GEGL_ABYSS_NONE);
+
 	static uint32_t texture = 0;
 	glDeleteTextures(1, &texture);
 	glGenTextures(1, &texture);
@@ -123,10 +193,6 @@ void reloadBuffers(GeglRectangle *bound, GeglBuffer *input)
 	free(src_buf);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-
-	glEnableVertexAttribArray(0);
-	glBindBuffer(GL_ARRAY_BUFFER, vertexbuffer);
-	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, NULL);
 }
 
 void shaderTextAttach(int prog, const char *sourceText, int sort)
@@ -187,10 +253,10 @@ prepare(GeglOperation *operation)
 
 	static gboolean purged = FALSE;
 	static int prog = 0;
-	static int initialized = 0;
-	if((!purged && o->purge) || !initialized)
+	static int ranOnce = 0;
+	if((!purged && o->purge) || !ranOnce)
 	{
-		initialized = 1;
+		ranOnce = 1;
 
 		if(!glfwInit())
 		{
@@ -226,6 +292,8 @@ prepare(GeglOperation *operation)
 		}
 
 		reloadShaders(operation, prog);
+		reloadVertices(&bound);
+
 		glLinkProgram(prog);
 		int linkSuccess = GL_FALSE;
 		glGetProgramiv(prog, GL_LINK_STATUS, &linkSuccess);
@@ -251,10 +319,21 @@ prepare(GeglOperation *operation)
 	int c_loc = glGetUniformLocation(prog, "c");
 	glUniform1f(c_loc, o->c_var);
 
+	glGetError();
 	glClear(GL_COLOR_BUFFER_BIT);
 	glDrawArrays(GL_TRIANGLE_STRIP, 0, 2*(bound.width + 1)*bound.height);
+
+	static char *dst_buf = NULL;
+	glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
+	glReadPixels(0, 0, bound.width, bound.height, GL_RGBA, GL_UNSIGNED_BYTE, 0);
+	reportError("Read pixels error:");
+	dst_buf = (char *) glMapBuffer(GL_PIXEL_PACK_BUFFER, GL_READ_ONLY);
+
+	glFlushMappedBufferRange(GL_PIXEL_PACK_BUFFER, 0, 4*bound.width*bound.height);
+	o->user_data = dst_buf;
 	return;
 }
+
 
 static gboolean
 process(GeglOperation       *operation,
@@ -268,24 +347,26 @@ process(GeglOperation       *operation,
 	*gegl_operation_source_get_bounding_box(operation, "input");
 
 	static int prepped = 0;
-	if(!prepped) prepare(operation);
-	prepped = 1;
-
-	guchar *dst_buf = g_new0(guchar, result->width * result->height * 4);
-
-	static gboolean purged = FALSE;
-	if(!purged && o->purge) reloadBuffers(&bound, input);
+	static gboolean purged= 0;
+	if(!prepped || (!purged && o->purge))
+	{
+		reloadTexture(&bound, input);
+		prepped = 1;
+	}
 	purged = o->purge;
 
-	glReadPixels(	result->x, result->y,
-					result->width, result->height,
-					GL_RGBA, GL_UNSIGNED_BYTE, dst_buf	);
+	if(o->user_data == NULL)
+	{
+		puts("Received NULL pointer as destination buffer.");
+		raise(SIGTRAP);
+	}
+	//glReadPixels(	result->x, result->y,
+	//				result->width, result->height,
+	//				GL_RGBA, GL_UNSIGNED_BYTE, dst_buf	);
 
 	gegl_buffer_set(output, result, 0,
 					babl_format("RGBA u8"),
-					dst_buf, GEGL_AUTO_ROWSTRIDE);
-
-	g_free(dst_buf);
+					o->user_data, GEGL_AUTO_ROWSTRIDE);
 
 	return TRUE;
 }
@@ -313,6 +394,5 @@ gegl_op_class_init(GeglOpClass *klass)
 			_("General geometric transformation."),
 			NULL);
 }
-//bruh
 
 #endif
