@@ -65,15 +65,8 @@ ui_meta("multiline", "true")
 #include <GLFW/glfw3.h>
 
 //TODO
-//runtime shader swapping
 //shader compilation error reporting
-
-void debug(char *msg)
-{
-	puts(msg);
-	raise(SIGTRAP);
-	return;
-}
+//optimize DMA/pixel buffer transfer
 
 void reloadBuffers(GeglRectangle *bound, GeglBuffer *input)
 { 
