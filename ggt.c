@@ -75,77 +75,12 @@ void debug(char *msg)
 	return;
 }
 
-void loadFile(const char *path, void **data, uint32_t *length)
-{
-	FILE *file = fopen(path, "r");
-	if(file == NULL) debug("File open error.");
-	fseek(file, 0, SEEK_END);
-	*length = ftell(file);
-	fseek(file, 0, SEEK_SET);
-	*data = malloc(*length);
-	fread(*data, 1, *length, file);
-	fclose(file);
-}
-
-uint32_t shaderFileAttach(uint32_t prog, const char *path, uint32_t sort)
-{
-	char *sourceText; uint32_t len;
-	loadFile(path, &sourceText, &len);
-
-	uint32_t s = glCreateShader(sort);
-	glShaderSource(s, 1, &sourceText, &len);
-	free(sourceText);
-
-	glCompileShader(s);
-	uint32_t sCompiled;
-	glGetShaderiv(s, GL_COMPILE_STATUS, &sCompiled);
-	if(!sCompiled) debug("Shader compilation error.");
-
-	glAttachShader(prog, s);
-	return s;
-}
-
-uint32_t shaderTextAttach(uint32_t prog, const char *sourceText, uint32_t sort)
-{
-	uint32_t s = glCreateShader(sort);
-	glShaderSource(s, 1, &sourceText, NULL);
-
-	glCompileShader(s);
-	uint32_t sCompiled;
-	glGetShaderiv(s, GL_COMPILE_STATUS, &sCompiled);
-	if(!sCompiled)
-	{
-		printf("Shader compilation error. Offending shader:\n%s", sourceText);
-		raise(SIGTRAP);
-	}
-
-	glAttachShader(prog, s);
-	return s;
-}
-
-uint32_t initialized = 0;
-uint32_t prog = 0;
-
-//this is stuff that should really only be run once per the user
-//invoking the plugin, but because I'm not seeing a good way
-//to do that it will be run at user discretion
-void purge(GeglRectangle *bound, GeglBuffer *input, char *vst, char *fst)
+void reloadBuffers(GeglRectangle *bound, GeglBuffer *input)
 { 
 	char *src_buf;
 	float *img_coo;
 	int32_t w = bound->width;
 	int32_t h = bound->height;
-
-	if(!glfwInit()) debug("GLFW Initialization failed.");
-
-	static GLFWwindow* window = NULL;
-	glfwDestroyWindow(window);
-	glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
-	window = glfwCreateWindow(w, h, "IRIS", NULL, NULL);
-	if(window == NULL) debug("Failed to create GLFW window.");
-	glfwMakeContextCurrent(window);
-
-	if(glewInit() != GLEW_OK) puts("GLEW Initialization failed.");
 
 	src_buf = malloc(w * h * 4);
 	gegl_buffer_get
@@ -183,21 +118,6 @@ void purge(GeglRectangle *bound, GeglBuffer *input, char *vst, char *fst)
 	glBufferData(GL_ARRAY_BUFFER, img_coo_siz, img_coo, GL_STATIC_DRAW);
 	free(img_coo);
 
-	glDeleteProgram(prog);
-	prog = glCreateProgram();
-
-	static uint32_t vs = 0;
-	static uint32_t fs = 0;
-	glDetachShader(prog, vs);
-	glDetachShader(prog, fs);
-	glDeleteShader(vs);
-	glDeleteShader(fs);
-	vs = shaderTextAttach(prog, vst, GL_VERTEX_SHADER);
-	fs = shaderTextAttach(prog, fst, GL_FRAGMENT_SHADER);
-
-	glLinkProgram(prog);
-	glUseProgram(prog);
-
 	static uint32_t texture = 0;
 	glDeleteTextures(1, &texture);
 	glGenTextures(1, &texture);
@@ -210,35 +130,88 @@ void purge(GeglRectangle *bound, GeglBuffer *input, char *vst, char *fst)
 	glEnableVertexAttribArray(0);
 	glBindBuffer(GL_ARRAY_BUFFER, vertexbuffer);
 	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, NULL);
+}
 
-	glClear(GL_COLOR_BUFFER_BIT);
-	glDrawArrays(GL_TRIANGLE_STRIP, 0, 2*(w + 1)*h);
-	//glDisableVertexAttribArray(0);
-	initialized = 1;
+void shaderTextAttach(uint32_t prog, const char *sourceText, uint32_t sort)
+{
+	uint32_t s = glCreateShader(sort);
+	glShaderSource(s, 1, &sourceText, NULL);
+
+	glCompileShader(s);
+	uint32_t sCompiled;
+	glGetShaderiv(s, GL_COMPILE_STATUS, &sCompiled);
+	if(!sCompiled)
+	{
+		printf("Shader compilation error. Offending shader:\n%s", sourceText);
+		raise(SIGTRAP);
+	}
+
+	glAttachShader(prog, s);
+	return s;
+}
+
+void reloadShaders(GeglOperation *operation, int prog)
+{
+	GeglProperties *o = GEGL_PROPERTIES(operation);
+
+	static uint32_t vs = 0;
+	static uint32_t fs = 0;
+	glDetachShader(prog, vs);
+	glDetachShader(prog, fs);
+	glDeleteShader(vs);
+	glDeleteShader(fs);
+	shaderTextAttach(prog, o->vst, GL_VERTEX_SHADER);
+	shaderTextAttach(prog, o->fst, GL_FRAGMENT_SHADER);
 }
 
 static void
 prepare(GeglOperation *operation)
 {
-	if(initialized)
-	{
-		GeglProperties *o = GEGL_PROPERTIES(operation);
-		GeglRectangle bound =
-		*gegl_operation_source_get_bounding_box(operation, "input");
-
-		uint32_t a_loc = glGetUniformLocation(prog, "a");
-		glUniform1f(a_loc, o->a_var);
-		uint32_t b_loc = glGetUniformLocation(prog, "b");
-		glUniform1f(b_loc, o->b_var);
-		uint32_t c_loc = glGetUniformLocation(prog, "c");
-		glUniform1f(c_loc, o->c_var);
-
-		glClear(GL_COLOR_BUFFER_BIT);
-		glDrawArrays(GL_TRIANGLE_STRIP, 0, 2*(bound.width + 1)*bound.height);
-	}
+	GeglProperties *o = GEGL_PROPERTIES(operation);
+	GeglRectangle *boundRef =
+	gegl_operation_source_get_bounding_box(operation, "input");
+	if(boundRef == NULL) debug("bruh");
+	GeglRectangle bound = *boundRef;
 
 	gegl_operation_set_format(operation, "input", babl_format("RGBA u8"));
 	gegl_operation_set_format(operation, "output", babl_format("RGBA u8"));
+
+	static int initialized = 0;
+	static gboolean purged = FALSE;
+	static int prog = 0;
+	if(!initialized || (!purged && o->purge))
+	{
+		if(!glfwInit()) debug("GLFW Initialization failed.");
+
+		static GLFWwindow* window = NULL;
+		glfwDestroyWindow(window);
+		glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
+		window =
+		glfwCreateWindow
+		(bound.width, bound.height, "IRIS", NULL, NULL);
+		if(window == NULL) debug("Failed to create GLFW window.");
+		glfwMakeContextCurrent(window);
+
+		if(glewInit() != GLEW_OK) debug("GLEW Initialization failed.");
+
+		if(!initialized) prog = glCreateProgram();
+		initialized = 1;
+
+		reloadShaders(operation, prog);
+		glLinkProgram(prog);
+		glUseProgram(prog);
+	}
+	purged = o->purge;
+
+	uint32_t a_loc = glGetUniformLocation(prog, "a");
+	glUniform1f(a_loc, o->a_var);
+	uint32_t b_loc = glGetUniformLocation(prog, "b");
+	glUniform1f(b_loc, o->b_var);
+	uint32_t c_loc = glGetUniformLocation(prog, "c");
+	glUniform1f(c_loc, o->c_var);
+
+	glClear(GL_COLOR_BUFFER_BIT);
+	glDrawArrays(GL_TRIANGLE_STRIP, 0, 2*(bound.width + 1)*bound.height);
 }
 
 static gboolean
@@ -251,22 +224,11 @@ process(GeglOperation       *operation,
 	GeglProperties *o = GEGL_PROPERTIES(operation);
 	GeglRectangle bound =
 	*gegl_operation_source_get_bounding_box(operation, "input");
-	//GeglSampler *sampler;
-	//sampler = gegl_buffer_sampler_new(input, babl_format("RGBA u8"), GEGL_SAMPLER_NEAREST);
 
-	//there is no straightforward way apparent to me to run code
-	//exactly once for each time the base image changes, nor when
-	//the deed is done, so to prevent memory leaks as well as
-	//having to construct a pixel buffer over and over I make use
-	//of a static
-	//the source image buffer is purged at user discretion which
-	//I think is a fine solution
 	guchar *dst_buf = g_new0(guchar, result->width * result->height * 4);
 
-	printf(o->fst);
-
 	static gboolean purged = FALSE;
-	if(!purged && o->purge) purge(&bound, input, o->vst, o->fst);
+	if(!purged && o->purge) reloadBuffers(&bound, input);
 	purged = o->purge;
 
 	glReadPixels(	result->x, result->y,
@@ -278,7 +240,6 @@ process(GeglOperation       *operation,
 					dst_buf, GEGL_AUTO_ROWSTRIDE);
 
 	g_free(dst_buf);
-	//g_free(src_buf);
 
 	return TRUE;
 }
