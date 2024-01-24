@@ -65,7 +65,6 @@ ui_meta("multiline", "true")
 #include <GLFW/glfw3.h>
 
 //TODO
-//shader compilation error reporting
 //optimize DMA/pixel buffer transfer
 
 void reloadBuffers(GeglRectangle *bound, GeglBuffer *input)
@@ -131,11 +130,23 @@ void shaderTextAttach(uint32_t prog, const char *sourceText, uint32_t sort)
 	glShaderSource(s, 1, &sourceText, NULL);
 
 	glCompileShader(s);
-	int32_t sCompiled;
-	glGetShaderiv(s, GL_COMPILE_STATUS, &sCompiled);
-	if(!sCompiled)
+	int shaderCompileSuccess = GL_FALSE;
+	glGetShaderiv(s, GL_COMPILE_STATUS, &shaderCompileSuccess);
+	if(shaderCompileSuccess == GL_FALSE)
 	{
-		printf("Shader compilation error. Offending shader:\n%s", sourceText);
+		puts("Shader compilation error.");
+		if(sourceText == NULL) puts("Shader source string is a NULL pointer");
+		else
+		{
+			printf("Offending shader:\n\n%s\n", sourceText);
+			char log[4096];
+			glGetShaderInfoLog(s, 4096, NULL, log);
+			int error = glGetError();
+			if(error == GL_INVALID_OPERATION) puts("Shader object does not exist.");
+			else if(error == GL_INVALID_VALUE) printf("Impossible shader value: %d.\n", prog);
+			else printf("Info log:\n%s", log);
+		}
+
 		raise(SIGTRAP);
 	}
 
@@ -222,6 +233,7 @@ prepare(GeglOperation *operation)
 			if(error == GL_INVALID_OPERATION) puts("Program object does not exist.");
 			else if(error == GL_INVALID_VALUE) printf("Impossible program value: %d.\n", prog);
 			else printf("Info log:\n%s", log);
+			raise(SIGTRAP);
 		}
 		glUseProgram(prog);
 	}
