@@ -66,25 +66,30 @@ ui_meta("multiline", "true")
 
 //TODO
 //optimize DMA/pixel buffer transfer
+//uniform arbitration
+//cursor coordinates as uniforms
+//improve UI
+//	shader storage/retrieval
+//	proper purge button
 
 void reloadBuffers(GeglRectangle *bound, GeglBuffer *input)
 { 
 	char *src_buf;
 	float *img_coo;
-	int32_t w = bound->width;
-	int32_t h = bound->height;
+	int w = bound->width;
+	int h = bound->height;
 
 	src_buf = malloc(w * h * 4);
 	gegl_buffer_get
 	(input, NULL, 1.0, babl_format("RGBA u8"), src_buf, GEGL_AUTO_ROWSTRIDE, GEGL_ABYSS_NONE);
 
-	uint32_t img_coo_siz = 4*sizeof(float)*(w + 1)*h;
+	size_t img_coo_siz = 4*sizeof(float)*(w + 1)*h;
 	img_coo = malloc(img_coo_siz);
 	{
-		uint32_t index = 0;
-		for(int32_t b = 0; b < h; b += 1)
+		size_t index = 0;
+		for(int b = 0; b < h; b += 1)
 		{
-			for(int32_t a = 0; a < w; a += 1)
+			for(int a = 0; a < w; a += 1)
 			{
 				img_coo[index++] = ((float) (2*a + 1 - w))/(w - 1);
 				img_coo[index++] = ((float) (2*b + 1 - h))/(h - 1);
@@ -124,9 +129,9 @@ void reloadBuffers(GeglRectangle *bound, GeglBuffer *input)
 	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, NULL);
 }
 
-void shaderTextAttach(uint32_t prog, const char *sourceText, uint32_t sort)
+void shaderTextAttach(int prog, const char *sourceText, int sort)
 {
-	int32_t s = glCreateShader(sort);
+	int s = glCreateShader(sort);
 	glShaderSource(s, 1, &sourceText, NULL);
 
 	glCompileShader(s);
@@ -151,15 +156,15 @@ void shaderTextAttach(uint32_t prog, const char *sourceText, uint32_t sort)
 	}
 
 	glAttachShader(prog, s);
-	return s;
+	return;
 }
 
 void reloadShaders(GeglOperation *operation, int prog)
 {
 	GeglProperties *o = GEGL_PROPERTIES(operation);
 
-	static uint32_t vs = 0;
-	static uint32_t fs = 0;
+	static int vs = 0;
+	static int fs = 0;
 	glDetachShader(prog, vs);
 	glDetachShader(prog, fs);
 	glDeleteShader(vs);
@@ -239,11 +244,11 @@ prepare(GeglOperation *operation)
 	}
 	purged = o->purge;
 
-	uint32_t a_loc = glGetUniformLocation(prog, "a");
+	int a_loc = glGetUniformLocation(prog, "a");
 	glUniform1f(a_loc, o->a_var);
-	uint32_t b_loc = glGetUniformLocation(prog, "b");
+	int b_loc = glGetUniformLocation(prog, "b");
 	glUniform1f(b_loc, o->b_var);
-	uint32_t c_loc = glGetUniformLocation(prog, "c");
+	int c_loc = glGetUniformLocation(prog, "c");
 	glUniform1f(c_loc, o->c_var);
 
 	glClear(GL_COLOR_BUFFER_BIT);
@@ -308,5 +313,6 @@ gegl_op_class_init(GeglOpClass *klass)
 			_("General geometric transformation."),
 			NULL);
 }
+//bruh
 
 #endif
