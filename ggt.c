@@ -68,8 +68,6 @@ ui_meta("multiline", "true")
 //TODO
 //use EGL instead of glfw, make it headless
 //figure out what glew does
-//optimize DMA/pixel buffer transfer
-//	user pixel buffer objects?
 //write to layer of arbitrary bounds
 //uniform arbitration
 //cursor coordinates as uniforms
@@ -327,7 +325,7 @@ prepare(GeglOperation *operation)
 	glReadPixels(0, 0, bound.width, bound.height, GL_RGBA, GL_UNSIGNED_BYTE, 0);
 	dst_buf = (char *) glMapBuffer(GL_PIXEL_PACK_BUFFER, GL_READ_ONLY);
 
-	glFlush();
+	//glFlush();
 	o->user_data = dst_buf;
 	return;
 }
