@@ -52,6 +52,12 @@ void main()\n\
 ")
 ui_meta("multiline", "true")
 
+property_int(xVert, _("Vertices along the x-axis"), 512)
+value_range(2, 1024)
+
+property_int(yVert, _("Vertices along the y-axis"), 512)
+value_range(2, 1024)
+
 #else
 #define GEGL_OP_FILTER
 #define GEGL_OP_NAME     ggt
@@ -66,6 +72,9 @@ ui_meta("multiline", "true")
 #include <GLFW/glfw3.h>
 
 //TODO
+//adjustable vertex density
+//draw distance
+//transparent background
 //use EGL instead of glfw, make it headless
 //figure out what glew does
 //write to layer of arbitrary bounds
