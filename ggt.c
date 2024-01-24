@@ -319,17 +319,15 @@ prepare(GeglOperation *operation)
 	int c_loc = glGetUniformLocation(prog, "c");
 	glUniform1f(c_loc, o->c_var);
 
-	glGetError();
 	glClear(GL_COLOR_BUFFER_BIT);
 	glDrawArrays(GL_TRIANGLE_STRIP, 0, 2*(bound.width + 1)*bound.height);
 
 	static char *dst_buf = NULL;
 	glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
 	glReadPixels(0, 0, bound.width, bound.height, GL_RGBA, GL_UNSIGNED_BYTE, 0);
-	reportError("Read pixels error:");
 	dst_buf = (char *) glMapBuffer(GL_PIXEL_PACK_BUFFER, GL_READ_ONLY);
 
-	glFlushMappedBufferRange(GL_PIXEL_PACK_BUFFER, 0, 4*bound.width*bound.height);
+	glFlush();
 	o->user_data = dst_buf;
 	return;
 }
@@ -346,13 +344,8 @@ process(GeglOperation       *operation,
 	GeglRectangle bound =
 	*gegl_operation_source_get_bounding_box(operation, "input");
 
-	static int prepped = 0;
-	static gboolean purged= 0;
-	if(!prepped || (!purged && o->purge))
-	{
-		reloadTexture(&bound, input);
-		prepped = 1;
-	}
+	static gboolean purged = 0;
+	if(!purged && o->purge) reloadTexture(&bound, input);
 	purged = o->purge;
 
 	if(o->user_data == NULL)
@@ -360,13 +353,9 @@ process(GeglOperation       *operation,
 		puts("Received NULL pointer as destination buffer.");
 		raise(SIGTRAP);
 	}
-	//glReadPixels(	result->x, result->y,
-	//				result->width, result->height,
-	//				GL_RGBA, GL_UNSIGNED_BYTE, dst_buf	);
 
-	gegl_buffer_set(output, result, 0,
-					babl_format("RGBA u8"),
-					o->user_data, GEGL_AUTO_ROWSTRIDE);
+	gegl_buffer_set(output, result, 0, babl_format("RGBA u8"),
+					o->user_data + 4*(result->y*bound.width + result->x), 4*bound.width);
 
 	return TRUE;
 }
