@@ -19,14 +19,16 @@ recompiled and the base image texture is reloaded.")
 property_string(vertexShader, _("Vertex Shader"), "\
 #version 460 core\n\
 \n\
-//layout(location = 0) in vec2 icv;\n\
 in vec2 icv;\n\
 out vec2 icf;\n\
+uniform float a;\n\
+uniform float b;\n\
+uniform float c;\n\
 \n\
 void main()\n\
 {\n\
 	icf = icv;\n\
-	gl_Position.x = abs(icv.x)*icv.x;\n\
+	gl_Position.x = icv.x + 0.5*(a + 1.0)icv.x*abs(icv.x);\n\
 	gl_Position.y = icv.y;\n\
 	gl_Position.z = 0.0;\n\
 	gl_Position.w = 1.0;\n\
@@ -103,6 +105,9 @@ uint32_t shaderFileAttach(uint32_t prog, const char *path, uint32_t sort)
 	return s;
 }
 
+uint32_t initialized = 0;
+uint32_t prog = 0;
+
 //this is stuff that should really only be run once per the user
 //invoking the plugin, but because I'm not seeing a good way
 //to do that it will be run at user discretion
@@ -160,7 +165,6 @@ void purge(GeglRectangle *bound, GeglBuffer *input)
 	glBufferData(GL_ARRAY_BUFFER, img_coo_siz, img_coo, GL_STATIC_DRAW);
 	free(img_coo);
 
-	static uint32_t prog = 0;
 	glDeleteProgram(prog);
 	prog = glCreateProgram();
 
@@ -185,40 +189,31 @@ void purge(GeglRectangle *bound, GeglBuffer *input)
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 
-	glClear(GL_COLOR_BUFFER_BIT);
 	glEnableVertexAttribArray(0);
 	glBindBuffer(GL_ARRAY_BUFFER, vertexbuffer);
 	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, NULL);
 
+	glClear(GL_COLOR_BUFFER_BIT);
 	glDrawArrays(GL_TRIANGLE_STRIP, 0, 2*(w + 1)*h);
-	glDisableVertexAttribArray(0);
-}
-
-static GeglRectangle
-get_bounding_box(GeglOperation *operation)
-{
-	GeglRectangle  result = {0,0,0,0};
-	GeglRectangle *in_rect;
-
-	in_rect = gegl_operation_source_get_bounding_box(operation, "input");
-	if(!in_rect)
-		return result;
-
-	return *in_rect;
-}
-
-static GeglRectangle
-get_required_for_output(GeglOperation       *operation,
-		const gchar         *input_pad,
-		const GeglRectangle *roi)
-{
-	return get_bounding_box(operation);
+	//glDisableVertexAttribArray(0);
+	initialized = 1;
 }
 
 static void
 prepare(GeglOperation *operation)
 {
-	static int32_t initialized = 0;
+	if(initialized)
+	{
+		GeglProperties *o = GEGL_PROPERTIES(operation);
+		GeglRectangle bound =
+		*gegl_operation_source_get_bounding_box(operation, "input");
+		uint32_t a_loc = glGetUniformLocation(prog, "a");
+		glUniform1f(a_loc, o->a_var);
+
+		glClear(GL_COLOR_BUFFER_BIT);
+		glDrawArrays(GL_TRIANGLE_STRIP, 0, 2*(bound.width + 1)*bound.height);
+	}
+
 	gegl_operation_set_format(operation, "input", babl_format("RGBA u8"));
 	gegl_operation_set_format(operation, "output", babl_format("RGBA u8"));
 }
