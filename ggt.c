@@ -176,29 +176,45 @@ prepare(GeglOperation *operation)
 	gegl_operation_set_format(operation, "input", babl_format("RGBA u8"));
 	gegl_operation_set_format(operation, "output", babl_format("RGBA u8"));
 
-	static int initialized = 0;
 	static gboolean purged = FALSE;
 	static int prog = 0;
-	if(!initialized || (!purged && o->purge))
+	static int initialized = 0;
+	if((!purged && o->purge) || !initialized)
 	{
-		if(!glfwInit()) debug("GLFW Initialization failed.");
+		initialized = 1;
+
+		if(!glfwInit())
+		{
+			puts("GLFW Initialization failed.");
+			raise(SIGTRAP);
+		}
 
 		static GLFWwindow* window = NULL;
 		glfwDestroyWindow(window);
 		glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
 		window =
-		glfwCreateWindow
-		(bound.width, bound.height, "IRIS", NULL, NULL);
-		if(window == NULL) debug("Failed to create GLFW window.");
+			glfwCreateWindow
+			(bound.width, bound.height, "IRIS", NULL, NULL);
+		if(window == NULL)
+		{
+			puts("Failed to create GLFW window.");
+			raise(SIGTRAP);
+		}
 		glfwMakeContextCurrent(window);
 
-		if(glewInit() != GLEW_OK) debug("GLEW Initialization failed.");
+		if(glewInit() != GLEW_OK)
+		{
+			puts("GLEW Initialization failed.");
+			raise(SIGTRAP);
+		}
 
 		glDeleteProgram(prog);
 		prog = glCreateProgram();
-		puts("Program created.");
-		if(prog == 0) puts("Program creation error.");
-		initialized = 1;
+		if(prog == 0)
+		{
+			puts("Program creation error.");
+			raise(SIGTRAP);
+		}
 
 		reloadShaders(operation, prog);
 		glLinkProgram(prog);
@@ -227,6 +243,7 @@ prepare(GeglOperation *operation)
 
 	glClear(GL_COLOR_BUFFER_BIT);
 	glDrawArrays(GL_TRIANGLE_STRIP, 0, 2*(bound.width + 1)*bound.height);
+	return;
 }
 
 static gboolean
