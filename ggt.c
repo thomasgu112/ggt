@@ -72,7 +72,6 @@ value_range(2, 1024)
 #include <GLFW/glfw3.h>
 
 //TODO
-//adjustable vertex density
 //draw distance
 //transparent background
 //use EGL instead of glfw, make it headless
@@ -133,11 +132,9 @@ void reportError(const char *msg)
 	return;
 }
 
-void reloadVertices(GeglRectangle *bound)
+void reloadVertices(int w, int h)
 { 
 	float *img_coo;
-	int w = bound->width;
-	int h = bound->height;
 
 	size_t img_coo_siz = 4*sizeof(float)*(w + 1)*h;
 	img_coo = malloc(img_coo_siz);
@@ -170,12 +167,6 @@ void reloadVertices(GeglRectangle *bound)
 	glBindBuffer(GL_ARRAY_BUFFER, vertexbuffer);
 	glBufferData(GL_ARRAY_BUFFER, img_coo_siz, img_coo, GL_STATIC_DRAW);
 	free(img_coo);
-
-	static uint32_t pbo = 0;
-	glDeleteBuffers(1, &pbo);
-	glGenBuffers(1, &pbo);
-	glBindBuffer(GL_PIXEL_PACK_BUFFER, pbo);
-	glBufferData(GL_PIXEL_PACK_BUFFER, w * h * 4, NULL, GL_STATIC_READ);
 
 	glEnableVertexAttribArray(0);
 	glBindBuffer(GL_ARRAY_BUFFER, vertexbuffer);
@@ -299,7 +290,13 @@ prepare(GeglOperation *operation)
 		}
 
 		reloadShaders(operation, prog);
-		reloadVertices(&bound);
+		reloadVertices(o->xVert, o->yVert);
+
+		static uint32_t pbo = 0;
+		glDeleteBuffers(1, &pbo);
+		glGenBuffers(1, &pbo);
+		glBindBuffer(GL_PIXEL_PACK_BUFFER, pbo);
+		glBufferData(GL_PIXEL_PACK_BUFFER, bound.width*bound.height*4, NULL, GL_STATIC_READ);
 
 		glLinkProgram(prog);
 		int linkSuccess = GL_FALSE;
@@ -327,7 +324,7 @@ prepare(GeglOperation *operation)
 	glUniform1f(c_loc, o->c_var);
 
 	glClear(GL_COLOR_BUFFER_BIT);
-	glDrawArrays(GL_TRIANGLE_STRIP, 0, 2*(bound.width + 1)*bound.height);
+	glDrawArrays(GL_TRIANGLE_STRIP, 0, 2*(o->xVert + 1)*o->yVert);
 
 	static char *dst_buf = NULL;
 	glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
