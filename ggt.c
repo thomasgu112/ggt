@@ -83,6 +83,14 @@ value_range(2, 1024)
 //	shader storage/retrieval
 //	proper purge button
 
+typedef struct
+{
+	int engaged;
+	int purged;
+	int prog;
+	char *dst_buf;
+} State;
+
 void reportError(const char *msg)
 {
 	puts(msg);
@@ -216,7 +224,7 @@ void shaderTextAttach(int prog, const char *sourceText, int sort)
 			else printf("Info log:\n%s", log);
 		}
 
-		raise(SIGTRAP);
+		//raise(SIGTRAP);
 	}
 
 	glAttachShader(prog, s);
@@ -237,84 +245,14 @@ void reloadShaders(GeglOperation *operation, int prog)
 	shaderTextAttach(prog, o->fst, GL_FRAGMENT_SHADER);
 }
 
-static void
-prepare(GeglOperation *operation)
+void redraw(GeglOperation *operation)
 {
 	GeglProperties *o = GEGL_PROPERTIES(operation);
-	GeglRectangle *boundRef =
-	gegl_operation_source_get_bounding_box(operation, "input");
-	if(boundRef == NULL) return;
-	GeglRectangle bound = *boundRef;
+	GeglRectangle bound =
+	*gegl_operation_source_get_bounding_box(operation, "input");
 
-	gegl_operation_set_format(operation, "input", babl_format("RGBA u8"));
-	gegl_operation_set_format(operation, "output", babl_format("RGBA u8"));
-
-	static gboolean purged = FALSE;
-	static int prog = 0;
-	static int ranOnce = 0;
-	if((!purged && o->purge) || !ranOnce)
-	{
-		ranOnce = 1;
-
-		if(!glfwInit())
-		{
-			puts("GLFW Initialization failed.");
-			raise(SIGTRAP);
-		}
-
-		static GLFWwindow* window = NULL;
-		glfwDestroyWindow(window);
-		glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
-		window =
-			glfwCreateWindow
-			(bound.width, bound.height, "IRIS", NULL, NULL);
-		if(window == NULL)
-		{
-			puts("Failed to create GLFW window.");
-			raise(SIGTRAP);
-		}
-		glfwMakeContextCurrent(window);
-
-		if(glewInit() != GLEW_OK)
-		{
-			puts("GLEW Initialization failed.");
-			raise(SIGTRAP);
-		}
-
-		glDeleteProgram(prog);
-		prog = glCreateProgram();
-		if(prog == 0)
-		{
-			puts("Program creation error.");
-			raise(SIGTRAP);
-		}
-
-		reloadShaders(operation, prog);
-		reloadVertices(o->xVert, o->yVert);
-
-		static uint32_t pbo = 0;
-		glDeleteBuffers(1, &pbo);
-		glGenBuffers(1, &pbo);
-		glBindBuffer(GL_PIXEL_PACK_BUFFER, pbo);
-		glBufferData(GL_PIXEL_PACK_BUFFER, bound.width*bound.height*4, NULL, GL_STATIC_READ);
-
-		glLinkProgram(prog);
-		int linkSuccess = GL_FALSE;
-		glGetProgramiv(prog, GL_LINK_STATUS, &linkSuccess);
-		if(linkSuccess != GL_TRUE)
-		{
-			puts("Program link error.");
-			char log[4096];
-			glGetProgramInfoLog(prog, 4096, NULL, log);
-			int error = glGetError();
-			if(error == GL_INVALID_OPERATION) puts("Program object does not exist.");
-			else if(error == GL_INVALID_VALUE) printf("Impossible program value: %d.\n", prog);
-			else printf("Info log:\n%s", log);
-			raise(SIGTRAP);
-		}
-		glUseProgram(prog);
-	}
-	purged = o->purge;
+	State *state = o->user_data;
+	int prog = state->prog;
 
 	int a_loc = glGetUniformLocation(prog, "a");
 	glUniform1f(a_loc, o->a_var);
@@ -323,19 +261,101 @@ prepare(GeglOperation *operation)
 	int c_loc = glGetUniformLocation(prog, "c");
 	glUniform1f(c_loc, o->c_var);
 
+	glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
 	glClear(GL_COLOR_BUFFER_BIT);
 	glDrawArrays(GL_TRIANGLE_STRIP, 0, 2*(o->xVert + 1)*o->yVert);
 
-	static char *dst_buf = NULL;
+
+	char *dst_buf = state->dst_buf;
 	glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
 	glReadPixels(0, 0, bound.width, bound.height, GL_RGBA, GL_UNSIGNED_BYTE, 0);
 	dst_buf = (char *) glMapBuffer(GL_PIXEL_PACK_BUFFER, GL_READ_ONLY);
 
 	//glFlush();
-	o->user_data = dst_buf;
+	state->dst_buf = dst_buf;
 	return;
 }
 
+static void
+prepare(GeglOperation *operation)
+{
+	gegl_operation_set_format(operation, "input", babl_format("RGBA u8"));
+	gegl_operation_set_format(operation, "output", babl_format("RGBA u8"));
+
+	GeglProperties *o = GEGL_PROPERTIES(operation);
+	if(o->user_data == NULL) o->user_data = calloc(1, sizeof(State));
+	State *state = o->user_data;
+	if(state->engaged) redraw(operation);
+}
+
+void purge(GeglOperation *operation)
+{
+	GeglProperties *o = GEGL_PROPERTIES(operation);
+	GeglRectangle bound =
+	*gegl_operation_source_get_bounding_box(operation, "input");
+	State *state = o->user_data;
+
+	if(!glfwInit())
+	{
+		puts("GLFW Initialization failed.");
+		raise(SIGTRAP);
+	}
+
+	static GLFWwindow* window = NULL;
+	glfwDestroyWindow(window);
+	glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
+	window =
+		glfwCreateWindow
+		(bound.width, bound.height, "IRIS", NULL, NULL);
+	if(window == NULL)
+	{
+		printf("%d %d\n", bound.width, bound.height);
+		puts("Failed to create GLFW window.");
+		raise(SIGTRAP);
+	}
+	glfwMakeContextCurrent(window);
+
+	if(glewInit() != GLEW_OK)
+	{
+		puts("GLEW Initialization failed.");
+		raise(SIGTRAP);
+	}
+
+	int prog = state->prog;
+	glDeleteProgram(prog);
+	prog = glCreateProgram();
+	if(prog == 0)
+	{
+		puts("Program creation error.");
+		raise(SIGTRAP);
+	}
+
+	reloadShaders(operation, prog);
+	reloadVertices(o->xVert, o->yVert);
+
+	static uint32_t pbo = 0;
+	glDeleteBuffers(1, &pbo);
+	glGenBuffers(1, &pbo);
+	glBindBuffer(GL_PIXEL_PACK_BUFFER, pbo);
+	glBufferData(GL_PIXEL_PACK_BUFFER, bound.width*bound.height*4, NULL, GL_STATIC_READ);
+
+	glLinkProgram(prog);
+	int linkSuccess = GL_FALSE;
+	glGetProgramiv(prog, GL_LINK_STATUS, &linkSuccess);
+	if(linkSuccess != GL_TRUE)
+	{
+		puts("Program link error.");
+		char log[4096];
+		glGetProgramInfoLog(prog, 4096, NULL, log);
+		int error = glGetError();
+		if(error == GL_INVALID_OPERATION) puts("Program object does not exist.");
+		else if(error == GL_INVALID_VALUE) printf("Impossible program value: %d.\n", prog);
+		else printf("Info log:\n%s", log);
+		raise(SIGTRAP);
+	}
+	glUseProgram(prog);
+	state->prog = prog;
+}
 
 static gboolean
 process(GeglOperation       *operation,
@@ -347,19 +367,25 @@ process(GeglOperation       *operation,
 	GeglProperties *o = GEGL_PROPERTIES(operation);
 	GeglRectangle bound =
 	*gegl_operation_source_get_bounding_box(operation, "input");
+	State *state = o->user_data;
 
-	static gboolean purged = 0;
-	if(!purged && o->purge) reloadTexture(&bound, input);
-	purged = o->purge;
+	if((!state->purged && o->purge) || !state->engaged)
+	{
+		state->engaged = 1;
+		purge(operation);
+		reloadTexture(&bound, input);
+		redraw(operation);
+	}
+	state->purged = o->purge;
 
-	if(o->user_data == NULL)
+	if(state->dst_buf == NULL)
 	{
 		puts("Received NULL pointer as destination buffer.");
 		raise(SIGTRAP);
 	}
 
 	gegl_buffer_set(output, result, 0, babl_format("RGBA u8"),
-					o->user_data + 4*(result->y*bound.width + result->x), 4*bound.width);
+					state->dst_buf + 4*(result->y*bound.width + result->x), 4*bound.width);
 
 	return TRUE;
 }
