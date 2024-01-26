@@ -262,7 +262,7 @@ void redraw(GeglOperation *operation)
 	glUniform1f(c_loc, o->c_var);
 
 	glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
-	glClear(GL_COLOR_BUFFER_BIT);
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 	glDrawArrays(GL_TRIANGLE_STRIP, 0, 2*(o->xVert + 1)*o->yVert);
 
 
@@ -354,6 +354,13 @@ void purge(GeglOperation *operation)
 		raise(SIGTRAP);
 	}
 	glUseProgram(prog);
+
+	glGetError();
+	glEnable(GL_DEPTH_TEST);
+	reportError("Enable depth test error:");
+	glDepthFunc(GL_LESS);
+	reportError("Set depth function error:");
+
 	state->prog = prog;
 }
 

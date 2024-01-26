@@ -11,5 +11,5 @@ cd ..
 cp obj/ggt.so ~/.local/share/gegl-0.4/plug-ins
 pkill -9 gimp
 printf "\n=== PROGRAM START ===\n\n"
-gdb --args gimp /tmp/jelly.png
-#gimp /tmp/jelly.png
+#gdb --args gimp /tmp/jelly.png
+gimp /tmp/wire.png
