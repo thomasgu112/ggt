@@ -28,9 +28,9 @@ uniform float c;\n\
 void main()\n\
 {\n\
 	icf = icv;\n\
-	gl_Position.x = icv.x + a;\n\
-	gl_Position.y = icv.y;\n\
-	gl_Position.z = 0.0;\n\
+	gl_Position.x = icv.x + a*icv.y;\n\
+	gl_Position.y = sin(20*b*icv.x);\n\
+	gl_Position.z = cos(20*b*icv.x);\n\
 	gl_Position.w = 1.0;\n\
 }\n\
 ")
@@ -42,11 +42,14 @@ property_string(fst, _("Fragment Shader"), "\
 in vec2 icf;\n\
 out vec4 color;\n\
 uniform sampler2D sam;\n\
+uniform float a;\n\
+uniform float b;\n\
+uniform float c;\n\
 \n\
 void main()\n\
 {\n\
 	vec2 uv = 0.5*(icf - 1.0);\n\
-	//color = vec4(1, 0, 0, 1);\n\
+	uv.x = mod(20*b*uv.x, 1.0);\n\
 	color = texture(sam, uv).rgba;\n\
 }\n\
 ")
@@ -73,7 +76,6 @@ value_range(2, 1024)
 
 //TODO
 //draw distance
-//transparent background
 //use EGL instead of glfw, make it headless
 //figure out what glew does
 //write to layer of arbitrary bounds
@@ -265,7 +267,6 @@ void redraw(GeglOperation *operation)
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 	glDrawArrays(GL_TRIANGLE_STRIP, 0, 2*(o->xVert + 1)*o->yVert);
 
-
 	char *dst_buf = state->dst_buf;
 	glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
 	glReadPixels(0, 0, bound.width, bound.height, GL_RGBA, GL_UNSIGNED_BYTE, 0);
@@ -355,11 +356,8 @@ void purge(GeglOperation *operation)
 	}
 	glUseProgram(prog);
 
-	glGetError();
 	glEnable(GL_DEPTH_TEST);
-	reportError("Enable depth test error:");
 	glDepthFunc(GL_LESS);
-	reportError("Set depth function error:");
 
 	state->prog = prog;
 }
